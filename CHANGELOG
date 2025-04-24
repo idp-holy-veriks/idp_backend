@@ -1,0 +1,8 @@
+# Changelog
+
+## [0.0.1] - 2024-04-23
+
+### Added
+
+- Simple CRUD API for: users, orders, products.
+- Authentication and authorization using JWT.
