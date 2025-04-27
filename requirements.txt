@@ -1,4 +1,5 @@
 fastapi
+requests
 python-jose
 python-multipart
 passlib

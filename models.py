@@ -8,7 +8,6 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(Text, nullable=False)
     email = Column(Text, unique=True, nullable=False)
-    password = Column(Text, nullable=False)
     baskets = relationship("BasketItem", back_populates="user")
     orders = relationship("Order", back_populates="user")
 

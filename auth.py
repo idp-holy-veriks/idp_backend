@@ -1,22 +1,17 @@
-from datetime import datetime, timedelta
+import os
+from typing import Dict, Any, Union
 
+import requests
+from fastapi import Depends
+from fastapi import HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
+
 import models
 from database import SessionLocal
-from typing import Optional
 
-# Secret key used for JWT encoding/decoding
-SECRET_KEY = "b63c06b14bc2be3c9b7e11cdfe4f69f4b9c1b5179d609c5f2f8d290e16717f3d"  # Change to something secure
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Dependency for getting the database session
 def get_db():
@@ -26,50 +21,103 @@ def get_db():
     finally:
         db.close()
 
-# Utility functions for password hashing
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
 
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+class AuthServiceClient:
+    """Client for interacting with the external authentication service"""
 
-# JWT utility functions
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    def __init__(self):
+        self.base_url = os.getenv("AUTH_SERVICE_URL", "http://localhost:8080")
 
-def decode_access_token(token: str) -> dict:
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except JWTError as e:
-        test = e
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+    def login(self, name: str, password: str) -> Dict[str, str]:
+        """Forward login request to auth service and return the JWT directly"""
+        response = requests.post(
+            f"{self.base_url}/login",
+            json={"name": name, "password": password}
         )
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = decode_access_token(token)
-        user_id: str = payload.get("sub")
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Just pass through the token response
+        return response.json()
+
+    def register(self, name: str, email: str, password: str) -> Dict[str, Any]:
+        """Forward registration to auth service and return the response"""
+        response = requests.post(
+            f"{self.base_url}/register",
+            json={"name": name, "email": email, "password": password}
+        )
+
+        if response.status_code != 201:  # Assuming 201 Created is returned
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=response.json().get("detail", "Registration failed")
+            )
+
+        # Just return whatever the auth service returned
+        return response.json()
+
+    def get_current_user_id(self, token: str = Depends(oauth2_scheme)):
+        """
+        Verify token with auth service and return the user_id.
+        This doesn't interact with the local database.
+        """
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+        # Verify the token
+        user_id = self.verify_token(token)
+
         if user_id is None:
             raise credentials_exception
-        user = db.query(models.User).filter(models.User.id == user_id).first()
-        if user is None:
-            raise credentials_exception
-        return user
-    except JWTError:
-        raise credentials_exception
 
+        return user_id
+
+    def get_current_user(self, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+        """
+        Get user from local database using user_id from auth service.
+        This is only needed if you need the full user object for your business logic.
+        """
+
+        # Get the user ID from the auth service
+        user_id = self.get_current_user_id(token)
+
+        # Now get the local user record
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+
+        if user is None:
+            # If the user exists in auth service but not in our database,
+            # we can create a minimal record
+            user = models.User(
+                id=user_id,
+                name="User",
+                email="user@example.com",
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        return user
+
+    def verify_token(self, token: str) -> Union[int, None]:
+        """
+        Verify a token with the auth service
+        Returns the user_id if valid, None otherwise
+        """
+        response = requests.post(
+            f"{self.base_url}/verify-token",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+
+        if response.status_code != 200:
+            return None
+
+        # Return the user_id from the auth service
+        return response.json().get("user_id")
