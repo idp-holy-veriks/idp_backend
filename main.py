@@ -1,15 +1,17 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from typing import List
+
+from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 
 import models
-import schemas, auth
+import schemas
+from auth import AuthServiceClient
 from database import SessionLocal, engine, Base
-from typing import List
-from datetime import timedelta
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+auth_service = AuthServiceClient()
 
 
 # Dependency for getting the database session
@@ -21,46 +23,41 @@ def get_db():
         db.close()
 
 
-# --- LOGIN AND JWT TOKEN ENDPOINTS ---
-@app.post("/login")
-def login_for_access_token(user_form: schemas.UserLogin, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.name == user_form.name).first()
-    if not user or not auth.verify_password(user_form.password, user.password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = auth.create_access_token(data={"sub": str(user.id)}, expires_delta=access_token_expires)
-    return {"access_token": access_token, "token_type": "bearer"}
+# --- USER ENDPOINTS ---
+@app.get("/users/me")
+def read_users_me(user_id: int = Depends(auth_service.get_current_user_id), db: Session = Depends(get_db)):
+    """
+    Get current user information using the ID from the auth service
+    """
+    # Find the user by ID
+    user = db.query(models.User).filter(models.User.id == user_id).first()
 
-@app.post("/register", response_model=schemas.UserOut)
-def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    existing_user = db.query(models.User).filter(models.User.email == user.email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
+    # If user not found in our database, return minimal info
+    if user is None:
+        return {"id": user_id, "name": "Unknown User"}
 
-    hashed_password = auth.get_password_hash(user.password)
-    new_user = models.User(name=user.name, email=user.email, password=hashed_password)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    return new_user
+    return user
 
 
-# Protect routes that require authentication
 @app.get("/users/", response_model=List[schemas.UserOut])
-def read_users(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+def read_users(user_id: int = Depends(auth_service.get_current_user_id), db: Session = Depends(get_db)):
+    """
+    List all users - requires authentication
+    """
+    # Now we only need user_id for authentication, not the full user object
     return db.query(models.User).all()
 
 
-# --- PROTECTED CRUD ROUTES --- (example for products)
-
+# --- PROTECTED CRUD ROUTES ---
 @app.post("/products/", response_model=schemas.ProductOut)
-def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db),
-                   current_user: models.User = Depends(auth.get_current_user)):
+def create_product(
+        product: schemas.ProductCreate,
+        db: Session = Depends(get_db),
+        user_id: int = Depends(auth_service.get_current_user_id)
+):
+    """
+    Create a product - requires authentication
+    """
     db_product = models.Product(**product.dict())
     db.add(db_product)
     db.commit()
@@ -69,5 +66,8 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
 
 
 @app.get("/products/", response_model=List[schemas.ProductOut])
-def get_products(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+def get_products(db: Session = Depends(get_db), user_id: int = Depends(auth_service.get_current_user_id)):
+    """
+    List all products - requires authentication
+    """
     return db.query(models.Product).all()

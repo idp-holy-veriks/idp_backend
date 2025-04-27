@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.2] - 2024-04-25
+
+### Changed
+
+- Split authentication and authorization from backend.
+
+### Added
+
+- Possible missing requirements.
+
 ## [0.0.1] - 2024-04-23
 
 ### Added
