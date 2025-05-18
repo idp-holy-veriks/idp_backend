@@ -1,18 +1,7 @@
 # Changelog
 
-## [0.0.2] - 2024-04-25
-
-### Changed
-
-- Split authentication and authorization from backend.
+## [0.0.1] - 2024-05-18
 
 ### Added
 
-- Possible missing requirements.
-
-## [0.0.1] - 2024-04-23
-
-### Added
-
-- Simple CRUD API for: users, orders, products.
-- Authentication and authorization using JWT.
+- Separation from backend

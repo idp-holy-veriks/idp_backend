@@ -26,7 +26,7 @@ class AuthServiceClient:
     """Client for interacting with the external authentication service"""
 
     def __init__(self):
-        self.base_url = os.getenv("AUTH_SERVICE_URL", "http://localhost:8080")
+        self.base_url = os.getenv("AUTH_SERVICE_URL", "http://idp_auth:8000")
 
     def login(self, name: str, password: str) -> Dict[str, str]:
         """Forward login request to auth service and return the JWT directly"""

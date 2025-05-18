@@ -1,26 +1,41 @@
+import os
 from typing import List
-from fastapi import FastAPI, Depends
+from typing import Optional
+
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 import models
 import schemas
 from auth import AuthServiceClient
 from database import SessionLocal, engine, Base
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, Depends, HTTPException, status
-from pydantic import BaseModel
-from typing import Optional
-from decimal import Decimal
+
+from pythonjsonlogger import jsonlogger
+import logging
+import sys
+import json
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=os.environ.get("ALLOWED_ORIGINS").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 Base.metadata.create_all(bind=engine)
 auth_service = AuthServiceClient()
+
+# JSON logging setup
+logHandler = logging.StreamHandler(sys.stdout)
+formatter = jsonlogger.JsonFormatter('%(asctime)s %(levelname)s %(name)s %(message)s')
+logHandler.setFormatter(formatter)
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.addHandler(logHandler)
 
 # Dependency for getting the database session
 def get_db():
